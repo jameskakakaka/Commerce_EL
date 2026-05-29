@@ -1,0 +1,7 @@
+fakeshop_dbt:
+  outputs:
+    dev:
+      type: duckdb
+      # This tells dbt to go up one folder (../) and look for our real database!
+      path: ../fakeshop_warehouse.db 
+  target: dev

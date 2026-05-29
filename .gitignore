@@ -1,0 +1,18 @@
+# ignoring the raw data and set up the security 
+# Environments 
+.env
+venv/
+.venv/
+*.db
+*.duckdb
+.astro/
+
+# Data 
+*.csv
+*.parquet 
+
+# Terraform state files 
+*.tfstate
+*.tfstate.backup
+.terraform/ 
+*.tfvars

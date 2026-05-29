@@ -1,0 +1,11 @@
+
+
+version: 2
+
+sources:
+  - name: raw_data 
+    description: "Raw data loaded by Airflow"
+    schema: main # DuckDB's default schema 
+    tables:
+      - name: transactions
+        description: "Flattened FakeStore API transactions"
