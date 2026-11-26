@@ -164,7 +164,7 @@ class FakeStoreTransactionScraper:
 # This allows us to test the script by running it directly in the terminal
 if __name__ == "__main__":
     logger.info("Starting Fake Store API Extraction...")
-    scraper = TransactionScraper()
+    scraper = FakeStoreTransactionScraper()
     written_files = scraper.extract_transactions()
     logger.info(f"Success! {len(written_files)} daily transaction files were written.")
 
