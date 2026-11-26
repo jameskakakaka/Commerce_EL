@@ -1,76 +1,94 @@
-
-
 """
-DuckDB Data Loader 
-Reads processed CSV files and load them into a local DuckDB database
+Load processed CSV partitions into the DuckDB warehouse.
+
+Each partition is loaded with delete-then-insert inside a single transaction,
+so re-running a date replaces its rows (idempotent) and a failed load leaves
+the previous data untouched (atomic).
 """
 
-# Importing the necessary libraries 
-import logging 
-import os 
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
 import duckdb
-from datetime import datetime 
-from pathlib import Path 
 
-# Setting up the log
+from include.config import duckdb_path, parse_date_str, processed_path
+
 logger = logging.getLogger(__name__)
 
-from include.config import duckdb_path, processed_path
+TABLE = "transactions"
 
-# Setting up the loading data method 
-def load_processed_data(date_str:str) -> str:
-    """
-    Loads a specific day's processed CSV into the DuckDB 
-    """
-    #Setting up the date of run format and the path to load CSV
-    run_date = datetime.strptime(date_str, "%Y%m%d").date()
+# Column order and types of the raw warehouse table (the dbt source).
+SCHEMA: list[tuple[str, str]] = [
+    ("transaction_id", "VARCHAR"),
+    ("cart_id", "INTEGER"),
+    ("transaction_date", "DATE"),
+    ("user_id", "INTEGER"),
+    ("customer_name", "VARCHAR"),
+    ("product_id", "INTEGER"),
+    ("product_title", "VARCHAR"),
+    ("category", "VARCHAR"),
+    ("unit_price", "DOUBLE"),
+    ("quantity", "INTEGER"),
+    ("total_amount", "DOUBLE"),
+    ("sale_tier", "VARCHAR"),
+    ("updated_at", "TIMESTAMP"),
+]
+
+_COLUMNS = ", ".join(name for name, _ in SCHEMA)
+_CREATE_SQL = f"CREATE TABLE IF NOT EXISTS {TABLE} ({', '.join(f'{n} {t}' for n, t in SCHEMA)})"
+
+
+def _select_expr(name: str, sql_type: str) -> str:
+    # The CSV is read as all-VARCHAR and cast explicitly, so the table contract does
+    # not depend on DuckDB's type sniffing. ISO timestamps ('2020-03-02T00:00:00.000Z')
+    # are truncated to the calendar date to avoid timezone-dependent casts.
+    if name == "transaction_date":
+        return "CAST(LEFT(transaction_date, 10) AS DATE)"
+    return f"CAST({name} AS {sql_type})"
+
+
+_INSERT_SQL = (
+    f"INSERT INTO {TABLE} ({_COLUMNS}) "
+    f"SELECT {', '.join(_select_expr(n, t) for n, t in SCHEMA)} "
+    "FROM read_csv(?, header = true, all_varchar = true)"
+)
+
+
+def load_processed_data(date_str: str, db_path: Path | None = None) -> dict:
+    """Load one day's processed CSV. Returns a small summary for logs/XCom."""
+    run_date = parse_date_str(date_str)
     csv_path = processed_path(run_date)
-
     if not csv_path.exists():
-        logger.warning(f"No processed file found for {date_str} at {csv_path}")
-        return "Skipped - No File"
+        logger.warning("No processed file for %s at %s", date_str, csv_path)
+        return {"date": date_str, "status": "skipped", "rows": 0}
 
-    # Connecting to the duckDB
-    db_path = duckdb_path()
+    db_path = Path(db_path) if db_path else duckdb_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = duckdb.connect(str(db_path))
 
-    # Ensuring the table exists
-    try: 
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS transactions (
-                transaction_id VARCHAR,
-                cart_id INTEGER,
-                transaction_date DATE,
-                user_id INTEGER,
-                customer_name VARCHAR,
-                product_id INTEGER,
-                product_title VARCHAR,
-                category VARCHAR,
-                unit_price DOUBLE,
-                quantity INTEGER,
-                total_amount DOUBLE,
-                sale_tier VARCHAR,
-                updated_at TIMESTAMP
-            )
-        """)
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(_CREATE_SQL)
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            conn.execute(f"DELETE FROM {TABLE} WHERE transaction_date = ?", [run_date])
+            conn.execute(_INSERT_SQL, [str(csv_path)])
+            # Every row in the file must belong to the partition being loaded,
+            # otherwise the next re-run of a *different* date would not clean it up.
+            foreign = conn.execute(
+                f"SELECT COUNT(*) FROM read_csv(?, header = true, all_varchar = true) "
+                f"WHERE CAST(LEFT(transaction_date, 10) AS DATE) <> ?",
+                [str(csv_path), run_date],
+            ).fetchone()[0]
+            if foreign:
+                raise ValueError(f"{foreign} rows in {csv_path.name} do not belong to {run_date}")
+            rows = conn.execute(
+                f"SELECT COUNT(*) FROM {TABLE} WHERE transaction_date = ?", [run_date]
+            ).fetchone()[0]
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
-        # Make it idempotent: Delete any existing data for this date so we don't duplicate
-        # Extract the date from the CSV filename to know what to delete
-        conn.execute(f"DELETE FROM transactions WHERE CAST(transaction_date AS VARCHAR) LIKE '{run_date}%'")
-
-        # Load the new data directly from the CSV 
-        conn.execute(f"""
-            INSERT INTO transactions 
-            SELECT * FROM read_csv_auto('{str(csv_path)}')
-        """)
-    
-        # Get a count of rows just loaded for our logs
-        result = conn.execute(f"SELECT COUNT(*) FROM transactions WHERE CAST(transaction_date AS VARCHAR) LIKE '{run_date}%'").fetchone()
-        logger.info(f"Successfully loaded {result[0]} rows into DuckDB for {date_str}")
-        
-    finally:
-        # Always close the connection
-        conn.close()
-
-    return f"Loaded {date_str}"
+    logger.info("Loaded %d rows into %s for %s", rows, TABLE, date_str)
+    return {"date": date_str, "status": "loaded", "rows": rows}
