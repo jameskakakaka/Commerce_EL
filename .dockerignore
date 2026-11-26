@@ -21,3 +21,9 @@ warehouse/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+# Secrets and IaC are never needed inside the Airflow image
+*.tfvars
+*.tfstate*
+.terraform/
+infra/
+terraform/
