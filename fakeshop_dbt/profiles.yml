@@ -1,7 +1,9 @@
 fakeshop_dbt:
+  target: dev
   outputs:
     dev:
       type: duckdb
-      # This tells dbt to go up one folder (../) and look for our real database!
-      path: ../fakeshop_warehouse.db 
-  target: dev
+      # Same warehouse the Airflow loader writes to. DUCKDB_PATH is set by the
+      # container / run_local script; the default works when run from this folder.
+      path: "{{ env_var('DUCKDB_PATH', '../warehouse/fakeshop.duckdb') }}"
+      threads: 1

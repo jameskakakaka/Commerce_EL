@@ -1,22 +1,28 @@
+-- One row per customer: order history, lifetime value and a value segment.
 
+with transactions as (
+    select * from {{ source('raw_data', 'transactions') }}
+),
 
--- Calculating how much each customer has spent and categorize them
-{{ config(materialized='table')}}
-
-WITH raw_transactions AS (
-    SELECT * FROM {{ source('raw_data', 'transactions') }}
+per_customer as (
+    select
+        user_id,
+        max(customer_name)             as customer_name,
+        count(distinct cart_id)        as total_orders,
+        count(*)                       as total_line_items,
+        sum(quantity)                  as total_items,
+        round(sum(total_amount), 2)    as lifetime_value,
+        min(transaction_date)          as first_order_date,
+        max(transaction_date)          as last_order_date
+    from transactions
+    group by user_id
 )
 
-SELECT
-    user_id,
-    customer_name,
-    COUNT(DISTINCT transaction_id) AS total_orders,
-    SUM(total_amount) AS lifetime_value,
-    CASE
-        WHEN SUM(total_amount) > 500 THEN 'VIP'
-        WHEN SUM(total_amount) > 100 THEN 'Regular'
-        ELSE 'Casual'
-        END AS customer_segment
-
-FROM raw_transactions
-GROUP BY 1, 2
+select
+    *,
+    case
+        when lifetime_value > 500 then 'VIP'
+        when lifetime_value > 100 then 'Regular'
+        else 'Casual'
+    end as customer_segment
+from per_customer

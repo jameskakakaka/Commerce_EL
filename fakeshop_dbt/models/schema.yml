@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: "Customer dimension with lifetime value and segment"
+    columns:
+      - name: user_id
+        tests: [unique, not_null]
+      - name: total_orders
+        description: "Distinct carts (orders), not line items"
+        tests: [not_null]
+      - name: customer_segment
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['VIP', 'Regular', 'Casual']
+
+  - name: fct_daily_sales
+    description: "Daily revenue and volume per product category"
+    columns:
+      - name: transaction_date
+        tests: [not_null]
+      - name: category
+        tests: [not_null]
+      - name: daily_revenue
+        tests: [not_null]
