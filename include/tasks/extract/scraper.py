@@ -1,178 +1,166 @@
+"""
+Extract FakeStore API data into date-partitioned raw CSVs.
 
+Joins users + products onto cart line items (one row per product in a cart) and
+writes one file per cart date:
+landing/raw/YYYY/MM/raw_data_YYYYMMDD.csv
+"""
 
-'''
-Output raw CSV to: 
-raw/YYYY/MM/raw_data_YYYYMMDD.csv
-'''
+from __future__ import annotations
 
-# Installing the necessary libraries 
+import json
 import logging
-import requests # Send HTTP request to the website or APIs
-import pandas as pd # Organize data and save them into tables 
-import os # Create folders and manage file pathways 
+from pathlib import Path
+from typing import Any
 
-from pathlib import Path 
-from bs4 import BeautifulSoup # Extract and parse data from the website 
-from datetime import date, datetime # To use the date of the files 
-from typing import Dict, List 
+import pandas as pd
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-# Setting up the logging to monitor what happens in the terminal
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+from include.config import raw_path
+
 logger = logging.getLogger(__name__)
 
-# Find the project roots (3 levels above this file) to set the landing zone of the files 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-LANDING_DIR = Path(os.getenv("LANDING_DIR", _PROJECT_ROOT /"landing"))
+RAW_COLUMNS = [
+    "transaction_id",
+    "cart_id",
+    "transaction_date",
+    "user_id",
+    "customer_name",
+    "product_id",
+    "product_title",
+    "category",
+    "unit_price",
+    "quantity",
+    "total_amount",
+]
 
-# Set up the return structured landing path for a given file 
-def get_output_path(run_date: date) -> Path:
-    """
-    Return the structured landing path for a given file
-    """
-    return(
-        LANDING_DIR 
-        / "raw" 
-        # Setting up the date for the output
-        / run_date.strftime("%Y")
-        / run_date.strftime("%m")
-        # CSV format raw data
-        / f"raw_data_{run_date.strftime('%Y%m%d')}.csv" 
+ENDPOINTS = ("users", "products", "carts")
+
+
+class ExtractError(RuntimeError):
+    """Raised when the source cannot be read or returns unusable data."""
+
+
+def build_session(retries: int = 3, backoff_factor: float = 1.0) -> requests.Session:
+    """HTTP session with exponential backoff on transient errors (429/5xx)."""
+    retry = Retry(
+        total=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET"}),
     )
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.mount("http://", HTTPAdapter(max_retries=retry))
+    session.headers["User-Agent"] = "fakeshop-pipeline/1.0"
+    return session
 
 
-# Defining a class for the transaction
-class FakeStoreTransactionScraper:
-    """
-    Extract and store the data from the API end points 
-    """
-    BASE_URL = "https://fakestoreapi.com"
+def flatten_carts(
+    users: list[dict[str, Any]],
+    products: list[dict[str, Any]],
+    carts: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """Denormalise carts into one row per cart line item."""
+    user_lookup = {
+        u["id"]: f"{u['name']['firstname']} {u['name']['lastname']}".title() for u in users
+    }
+    product_lookup = {p["id"]: p for p in products}
 
-    # Using a session to keep the underlying TCP connection open
-    # Making mutiple requests for efficiency
-    def __init__(self):
-        self._session = requests.Session()
+    rows: list[dict[str, Any]] = []
+    unknown_products: set[int] = set()
+    for cart in carts:
+        for item in cart["products"]:
+            product_id = item["productId"]
+            product = product_lookup.get(product_id)
+            if product is None:
+                # Keep the row so the data-quality gate can quarantine it
+                # (unit_price = 0 breaks the contract) instead of dropping it silently.
+                unknown_products.add(product_id)
+                product = {"title": "Unknown Product", "price": 0.0, "category": "Unknown"}
 
-    # Fetching the API endpoints 
-    def _fetch_api_endpoint(self, endpoint: str) -> List[Dict]:
-        """
-        A method to fetch data from API endpoint  
-        """
-        # Setting the source
-        url = f"{self.BASE_URL}/{endpoint}"
-        # Monitor the logs
-        logger.info(f"Fetching data from{url}")
-
-        # Setting up the extracting from source
-        try:
-            response = self._session.get(url, timeout=10)
-            # Check for errors
-            response.raise_for_status() 
-            return response.json() # return in json format
-
-        except requests.RequestException as e:
-            logger.error(f"Failed to fetch {endpoint}: {e}")
-            return 
-
-    # Defining the pipeline
-    def extract_transactions(self) -> List[Path]:
-        """
-        The main pipeline methods, fetches all the data, join them and saves it
-        """
-
-        # Fetch the users and create a lookup dictionary: {user_id: "First Last"}
-        users_raw = self._fetch_api_endpoint("users")
-        user_lookup = {}
-        for u in users_raw:
-            # Combine the first and last name
-            full_name = f"{u['name']['firstname']} {u['name']['lastname']}".title()
-            user_lookup[u['id']] = full_name
-
-        # Fetch the products and create a lookup dictionary: {product_id: {"title": X, "price": Y}}
-        products_raw = self._fetch_api_endpoint("products")
-        product_lookup = {
-            p['id']: {"title": p['title'], "price": p['price'], "category": p['category']} 
-            for p in products_raw
-        }
-
-        # Fetch the base transactions (Carts)
-        carts_raw = self._fetch_api_endpoint("carts")
-
-        # Flatten and join the data 
-        flat_transactions = []
-
-        for cart in carts_raw:
-            cart_id = cart['id']
-            cart_date = cart['date']
-            user_id = cart['userId']
-            user_name = user_lookup.get(user_id, "Unknown User")
-
-        # Loop in case the cart have mutiple products 
-            for item in cart['products']:
-                product_id = item['productId']
-                quantity = item['quantity']
-
-                # Look up product details
-                prod_details = product_lookup.get(product_id,{})
-                price = prod_details.get('price', 0.0)
-                title = prod_details.get('title', 'Unknown Product')
-                category = prod_details.get('category', 'Unknown')
-
-                # Calculate the total amount the specific item in the cart 
-                total_amount = price * quantity 
-
-                # Build the flat row
-                transaction_row = {
-                     "transaction_id": f"CART-{cart_id}-PROD-{product_id}", # Unique ID per row
-                    "cart_id": cart_id,
-                    "transaction_date": cart_date,
-                    "user_id": user_id,
-                    "customer_name": user_name,
+            price = float(product["price"])
+            quantity = int(item["quantity"])
+            rows.append(
+                {
+                    "transaction_id": f"CART-{cart['id']}-PROD-{product_id}",
+                    "cart_id": cart["id"],
+                    "transaction_date": cart["date"],
+                    "user_id": cart["userId"],
+                    "customer_name": user_lookup.get(cart["userId"], "Unknown User"),
                     "product_id": product_id,
-                    "product_title": title,
-                    "category": category,
+                    "product_title": product["title"],
+                    "category": product["category"],
                     "unit_price": price,
                     "quantity": quantity,
-                    "total_amount": round(total_amount, 2)
+                    "total_amount": round(price * quantity, 2),
                 }
-                # Apeend the flat row to file_transactions
-                flat_transactions.append(transaction_row)
+            )
 
-        # Check for the errors
-        if not flat_transactions:
-            raise RuntimeError("No transactions generated. Check API connections")
+    if unknown_products:
+        logger.warning("Carts reference unknown product ids: %s", sorted(unknown_products))
+    return pd.DataFrame(rows, columns=RAW_COLUMNS)
 
-        # Conver to Pandas DataFrame for saving and date partitioning
-        df = pd.DataFrame(flat_transactions)
 
-        # Ensure the data column is parsed as a true datetime object
-        # We use .str[:10] to grab just the YYYY-MM-DD part of the timestamp
-        df["_parsed_date"] = pd.to_datetime(df["transaction_date"].str[:10]).dt.date
+def write_partitions(df: pd.DataFrame) -> list[Path]:
+    """Write one raw CSV per transaction date. Re-running overwrites (idempotent)."""
+    if df.empty:
+        raise ExtractError("No transactions generated; check the source API.")
 
-        # Group the data by the date and save to S3-like folder structure
-        saved_paths = []
-        for txn_date, group in df.groupby("_parsed_date"):
-            output_path = get_output_path(txn_date)
-            # Create the deeply nested folders if they don't exist
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            # Drop our temporary date column and save to CSV
-            group.drop(columns=["_parsed_date"]).to_csv(output_path, index=False)
-            saved_paths.append(output_path)
-            logger.info(f"Saved {len(group)} transaction items → {output_path}")
+    partition_dates = pd.to_datetime(df["transaction_date"].str[:10]).dt.date
+    saved: list[Path] = []
+    for txn_date, group in df.groupby(partition_dates):
+        output_path = raw_path(txn_date)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        group.to_csv(output_path, index=False)
+        saved.append(output_path)
+        logger.info("Saved %d line items -> %s", len(group), output_path)
+    return saved
 
-        return saved_paths
 
-# This allows us to test the script by running it directly in the terminal
+class FakeStoreTransactionScraper:
+    """Reads users/products/carts from the FakeStore API (or local JSON fixtures)."""
+
+    BASE_URL = "https://fakestoreapi.com"
+
+    def __init__(
+        self,
+        session: requests.Session | None = None,
+        base_url: str | None = None,
+        timeout: float = 10,
+        fixtures_dir: Path | str | None = None,
+    ):
+        self._session = session or build_session()
+        self._base_url = (base_url or self.BASE_URL).rstrip("/")
+        self._timeout = timeout
+        self._fixtures_dir = Path(fixtures_dir) if fixtures_dir else None
+
+    def _fetch_api_endpoint(self, endpoint: str) -> list[dict[str, Any]]:
+        if self._fixtures_dir is not None:
+            data = json.loads((self._fixtures_dir / f"{endpoint}.json").read_text("utf-8"))
+        else:
+            url = f"{self._base_url}/{endpoint}"
+            logger.info("Fetching %s", url)
+            try:
+                response = self._session.get(url, timeout=self._timeout)
+                response.raise_for_status()
+                data = response.json()
+            except (requests.RequestException, ValueError) as exc:
+                raise ExtractError(f"Failed to fetch {url}: {exc}") from exc
+
+        if not isinstance(data, list) or not data:
+            raise ExtractError(f"Endpoint '{endpoint}' returned no records")
+        return data
+
+    def extract_transactions(self) -> list[Path]:
+        """Fetch, join and persist. Returns the partition files written."""
+        users, products, carts = (self._fetch_api_endpoint(e) for e in ENDPOINTS)
+        return write_partitions(flatten_carts(users, products, carts))
+
+
 if __name__ == "__main__":
-    logger.info("Starting Fake Store API Extraction...")
-    scraper = TransactionScraper()
-    written_files = scraper.extract_transactions()
-    logger.info(f"Success! {len(written_files)} daily transaction files were written.")
-
-
-
-
-
-
-
- 
-
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    written = FakeStoreTransactionScraper().extract_transactions()
+    logger.info("Wrote %d daily transaction files.", len(written))

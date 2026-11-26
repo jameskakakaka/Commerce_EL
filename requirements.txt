@@ -1,14 +1,5 @@
-# Data Manipulation
+# Runtime dependencies installed into the Airflow (Astro Runtime 11.3.0) image.
 pandas==2.2.1
-
-# Web Scraping (for the purpose of using a Web end point)
 requests==2.31.0
-beautifulsoup4==4.12.3
-
-# Snowflake connections
-snowflake-connector-python==3.8.0
-apache-airflow-providers-snowflake==5.3.0 
-
-# DuckDB initialization
-duckdb==0.10.2
-
+# Must match the duckdb pin in the Dockerfile's dbt venv: DuckDB files are not forward-compatible.
+duckdb==1.5.2

@@ -10,3 +10,20 @@ venv/
 .venv/
 fakeshop_dbt/target/
 fakeshop_dbt/logs/
+venv
+fakeshop_dbt/venv/
+fakeshop_dbt/.user.yml
+# Local data is mounted at runtime (docker-compose.override.yml), never baked in
+landing/
+warehouse/
+*.db
+*.duckdb
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+# Secrets and IaC are never needed inside the Airflow image
+*.tfvars
+*.tfstate*
+.terraform/
+infra/
+terraform/

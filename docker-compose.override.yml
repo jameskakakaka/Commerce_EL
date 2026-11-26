@@ -1,0 +1,13 @@
+# Applied automatically by `astro dev start`.
+# Astro only mounts dags/, include/, plugins/ and tests/, so without this the
+# landing zone and the DuckDB file would live inside the containers and be
+# invisible to the dashboard and to dbt running on the host.
+services:
+  scheduler:
+    volumes:
+      - ./landing:/usr/local/airflow/landing
+      - ./warehouse:/usr/local/airflow/warehouse
+  webserver:
+    volumes:
+      - ./landing:/usr/local/airflow/landing
+      - ./warehouse:/usr/local/airflow/warehouse

@@ -1,15 +1,16 @@
-Welcome to your new dbt project!
+# fakeshop_dbt
 
-### Using the starter project
+dbt models built on top of the raw `transactions` table loaded by Airflow.
 
-Try running the following commands:
-- dbt run
-- dbt test
+| Model | Grain | Used by |
+|---|---|---|
+| `dim_customers` | one row per `user_id` | dashboard (segments, KPIs) |
+| `fct_daily_sales` | one row per (`transaction_date`, `category`) | dashboard (revenue charts) |
 
+Tests: column tests in `models/*.yml` plus singular tests in `tests/`
+(unique fact grain, revenue reconciliation between source and marts).
 
-### Resources:
-- Learn more about dbt [in the docs](https://docs.getdbt.com/docs/introduction)
-- Check out [Discourse](https://discourse.getdbt.com/) for commonly asked questions and answers
-- Join the [chat](https://community.getdbt.com/) on Slack for live discussions and support
-- Find [dbt events](https://events.getdbt.com) near you
-- Check out [the blog](https://blog.getdbt.com/) for the latest news on dbt's development and best practices
+```bash
+# from this folder; DUCKDB_PATH defaults to ../warehouse/fakeshop.duckdb
+dbt build --profiles-dir .
+```

@@ -1,74 +1,57 @@
 """
-DAG 2: Transform Pipeline (Production Ready)
+DAG 2: Transform.
+
+Triggered by the raw dataset. Cleans every partition written by the last
+extract in parallel (dynamic task mapping) and writes:
+landing/processed/YYYY/MM/clean_data_YYYYMMDD.csv
 """
+
 import json
-import os
+import logging
 from datetime import datetime
+
+from airflow.datasets import Dataset
 from airflow.decorators import dag, task
 from airflow.models import Variable
-from airflow.datasets import Dataset
 
-from include.tasks.transform.processing import get_input_path, get_output_path, clean
+from include.config import DEFAULT_ARGS, parse_date_str, processed_path, raw_path
+from include.tasks.transform.processing import clean
 
-RAW_DATASET = Dataset("file://landing/raw_data")
-PROCESSED_DATASET = Dataset("file://landing/processed_data")
+logger = logging.getLogger(__name__)
+
+RAW_DATASET = Dataset("file:///landing/raw")
+PROCESSED_DATASET = Dataset("file:///landing/processed")
+
 
 @dag(
     dag_id="02_fakeshop_transform",
     start_date=datetime(2024, 1, 1),
     schedule=[RAW_DATASET],
     catchup=False,
-    tags=["fakeshop", "transform", "production"],
+    max_active_runs=1,
+    default_args=DEFAULT_ARGS,
+    tags=["fakeshop", "transform"],
 )
 def transform_dag():
-
     @task()
     def get_dates_to_process() -> list[str]:
-        raw = Variable.get("LAST_EXTRACT_DATES", default_var="[]")
-        return json.loads(raw)
-
-    @task()
-    def download_raw(date_str: str) -> str:
-        """Downloads the raw file from S3 before cleaning it."""
-        run_date = datetime.strptime(date_str, "%Y%m%d").date()
-        local_path = get_input_path(run_date)
-        
-        if os.getenv("STORAGE_MODE", "local") == "local":
-            print(f"Local mode: Reading directly from disk at {local_path}")
-        else:
-            # Placeholder for future AWS code
-            print(f"S3 mode: Downloading raw file for {date_str} from AWS S3...")
-            
-        return date_str
+        return json.loads(Variable.get("LAST_EXTRACT_DATES", default_var="[]"))
 
     @task()
     def clean_date(date_str: str) -> str:
-        """Runs the pandas cleaning logic."""
-        run_date = datetime.strptime(date_str, "%Y%m%d").date()
-        input_path = get_input_path(run_date)
-        output_path = get_output_path(run_date)
-        
-        clean(input_path, output_path)
+        """Run the pandas cleaning logic for one partition."""
+        run_date = parse_date_str(date_str)
+        clean(raw_path(run_date), processed_path(run_date))
         return date_str
 
     @task(outlets=[PROCESSED_DATASET])
-    def upload_processed(date_str: str):
-        """Uploads the cleaned file back to S3."""
-        if os.getenv("STORAGE_MODE", "local") == "local":
-            print(f"Local mode: Processed file kept on disk for {date_str}.")
-            return None
-            
-        print(f"S3 mode: Uploading processed file for {date_str} to AWS S3...")
-        return "uploaded"
+    def publish_processed(cleaned: list[str]) -> list[str]:
+        """Single fan-in task so the load DAG is triggered once per transform run."""
+        dates = sorted(cleaned)
+        logger.info("Processed %d partitions: %s", len(dates), dates)
+        return dates
 
-    # --- Wire up the Execution with Dynamic Mapping ---
-    dates = get_dates_to_process()
-    
-    # 1. Download in parallel
-    downloaded_dates = download_raw.expand(date_str=dates)
-    # 2. Clean in parallel
-    cleaned_dates = clean_date.expand(date_str=downloaded_dates)
-    # 3. Upload in parallel
-    upload_processed.expand(date_str=cleaned_dates)
+    publish_processed(clean_date.expand(date_str=get_dates_to_process()))
+
 
 transform_dag()

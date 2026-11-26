@@ -1,63 +1,74 @@
-
-
 """
-FakeShop Executive Analytics Dashboard.
-Connects directly to our dbt-transformed DuckDB models.
+FakeShop analytics dashboard.
+
+Reads the dbt marts (dim_customers, fct_daily_sales) from the DuckDB warehouse.
+Run with:  streamlit run dashboard.py
 """
 
-import streamlit as st
 import duckdb
-import pandas as pd
 import plotly.express as px
+import streamlit as st
 
-# 1. Set up the page layout
+from include.config import duckdb_path
+
 st.set_page_config(page_title="FakeShop Analytics", page_icon="🛒", layout="wide")
-st.title("🛒 FakeShop Executive Dashboard")
-st.markdown("Live analytics fueled by Airflow, dbt, and DuckDB.")
+st.title("🛒 FakeShop Dashboard")
+st.markdown("Analytics over dbt models built by the Airflow + DuckDB pipeline.")
 
-# 2. Connect to DuckDB and load our dbt models securely
-@st.cache_data
-def load_data():
-    # Connect in read-only mode to protect our data
-    conn = duckdb.connect('fakeshop_warehouse.db', read_only=True)
-    
-    # Fetch from our dbt-transformed tables!
-    customers_df = conn.execute("SELECT * FROM dim_customers").df()
-    sales_df = conn.execute("SELECT * FROM fct_daily_sales").df()
-    
-    conn.close()
-    return customers_df, sales_df
+
+@st.cache_data(ttl=300)
+def load_data(db_file: str):
+    # Read-only so the dashboard never takes the DuckDB write lock.
+    with duckdb.connect(db_file, read_only=True) as conn:
+        customers = conn.execute("SELECT * FROM dim_customers").df()
+        sales = conn.execute("SELECT * FROM fct_daily_sales").df()
+    return customers, sales
+
+
+db_file = duckdb_path()
+if not db_file.exists():
+    st.error(f"Warehouse not found at `{db_file}`. Run the pipeline first (see README).")
+    st.stop()
 
 try:
-    customers_df, sales_df = load_data()
-
-    # --- TOP ROW: Key Performance Indicators (KPIs) ---
-    total_revenue = sales_df['daily_revenue'].sum()
-    total_customers = customers_df['user_id'].nunique()
-    vip_count = customers_df[customers_df['customer_segment'] == 'VIP'].shape[0]
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Revenue", f"${total_revenue:,.2f}")
-    col2.metric("Total Customers", total_customers)
-    col3.metric("VIP Customers", vip_count)
-
-    st.markdown("---")
-
-    # --- BOTTOM ROW: Interactive Charts ---
-    chart_col1, chart_col2 = st.columns(2)
-
-    with chart_col1:
-        st.subheader("Revenue by Category")
-        category_sales = sales_df.groupby('category')['daily_revenue'].sum().reset_index()
-        fig_pie = px.pie(category_sales, values='daily_revenue', names='category', hole=0.4)
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-    with chart_col2:
-        st.subheader("Customer Segmentation")
-        segment_counts = customers_df['customer_segment'].value_counts().reset_index()
-        segment_counts.columns = ['Segment', 'Count']
-        fig_bar = px.bar(segment_counts, x='Segment', y='Count', color='Segment')
-        st.plotly_chart(fig_bar, use_container_width=True)
-
+    customers_df, sales_df = load_data(str(db_file))
 except duckdb.CatalogException:
-    st.error("🚨 Tables not found! Please make sure your Airflow pipeline and dbt models have run successfully.")
+    st.error("dbt models not found. Run `dbt build` (or the full pipeline) first.")
+    st.stop()
+except duckdb.IOException as exc:
+    st.error(f"Could not open the warehouse (is a pipeline run holding the lock?): {exc}")
+    st.stop()
+
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Total Revenue", f"${sales_df['daily_revenue'].sum():,.2f}")
+col2.metric("Customers", customers_df["user_id"].nunique())
+col3.metric("VIP Customers", int((customers_df["customer_segment"] == "VIP").sum()))
+col4.metric("Units Sold", int(sales_df["items_sold"].sum()))
+
+st.markdown("---")
+chart_col1, chart_col2 = st.columns(2)
+
+with chart_col1:
+    st.subheader("Revenue by Category")
+    by_category = sales_df.groupby("category", as_index=False)["daily_revenue"].sum()
+    st.plotly_chart(
+        px.pie(by_category, values="daily_revenue", names="category", hole=0.4),
+        use_container_width=True,
+    )
+
+with chart_col2:
+    st.subheader("Customer Segmentation")
+    segments = customers_df["customer_segment"].value_counts().reset_index()
+    segments.columns = ["Segment", "Count"]
+    st.plotly_chart(
+        px.bar(segments, x="Segment", y="Count", color="Segment"), use_container_width=True
+    )
+
+st.subheader("Daily Revenue")
+daily = sales_df.groupby("transaction_date", as_index=False)["daily_revenue"].sum()
+# Only days with sales exist, so plot dates as categories instead of a sparse time axis.
+daily["transaction_date"] = daily["transaction_date"].astype(str)
+fig_daily = px.bar(daily, x="transaction_date", y="daily_revenue", text_auto=".2s")
+fig_daily.update_xaxes(type="category", title="Date")
+fig_daily.update_yaxes(title="Revenue ($)")
+st.plotly_chart(fig_daily, use_container_width=True)
