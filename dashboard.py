@@ -43,7 +43,7 @@ col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Revenue", f"${sales_df['daily_revenue'].sum():,.2f}")
 col2.metric("Customers", customers_df["user_id"].nunique())
 col3.metric("VIP Customers", int((customers_df["customer_segment"] == "VIP").sum()))
-col4.metric("Line Items Sold", int(sales_df["items_sold"].sum()))
+col4.metric("Units Sold", int(sales_df["items_sold"].sum()))
 
 st.markdown("---")
 chart_col1, chart_col2 = st.columns(2)
@@ -66,4 +66,9 @@ with chart_col2:
 
 st.subheader("Daily Revenue")
 daily = sales_df.groupby("transaction_date", as_index=False)["daily_revenue"].sum()
-st.plotly_chart(px.bar(daily, x="transaction_date", y="daily_revenue"), use_container_width=True)
+# Only days with sales exist, so plot dates as categories instead of a sparse time axis.
+daily["transaction_date"] = daily["transaction_date"].astype(str)
+fig_daily = px.bar(daily, x="transaction_date", y="daily_revenue", text_auto=".2s")
+fig_daily.update_xaxes(type="category", title="Date")
+fig_daily.update_yaxes(title="Revenue ($)")
+st.plotly_chart(fig_daily, use_container_width=True)
