@@ -1,70 +1,50 @@
+"""
+DAG 1: Extract.
 
+Pulls users, products and carts from the FakeStore API, flattens them into one
+row per cart line item and writes date-partitioned raw CSVs:
+landing/raw/YYYY/MM/raw_data_YYYYMMDD.csv
+"""
 
-'''
-DAG 1 : Extract pipeline (Taskflow API)
-'''
-# Importing necessary libraries 
 import json
-import os 
-from datetime import datetime 
-from airflow.decorators import dag, task 
-from airflow.models import Variable 
-from airflow.datasets import Dataset 
+import logging
+from datetime import datetime
 
-# Importing from scraper 
-from include.tasks.extract.scraper import FakeStoreTransactionScraper 
+from airflow.datasets import Dataset
+from airflow.decorators import dag, task
+from airflow.models import Variable
 
-# Setting up the directory for the raw dataset
-RAW_DATASET = Dataset("file://landing/raw_data")
+from include.config import DEFAULT_ARGS
+from include.tasks.extract.scraper import FakeStoreTransactionScraper
 
-# Setting up @dag 
+logger = logging.getLogger(__name__)
+
+RAW_DATASET = Dataset("file:///landing/raw")
+
+
 @dag(
     dag_id="01_fakeshop_extract",
     start_date=datetime(2024, 1, 1),
-    schedule_interval="@daily",
+    schedule="@daily",
     catchup=False,
-    tags=["fakeshop", "extract", "production"],
+    max_active_runs=1,
+    default_args=DEFAULT_ARGS,
+    tags=["fakeshop", "extract"],
 )
-
-# Defining the extract_dag function
 def extract_dag():
-
-    # Setting up @task 
-    @task()
-    def extract_transactions() -> list[str]:
-        """
-        Run the Python scraper and returns the dates downloaded from the sources
-        """
-        # Path for extracting 
-        scraper = FakeStoreTransactionScraper()
-        written_paths = scraper.extract_transactions()
-
-        # Dates for downloading 
-        dates = [path.stem.split('_')[-1] for path in written_paths]
-        dates.sort()
-
-        # Variables 
-        Variable.set("LAST_EXTRACT_DATES", json.dumps(dates))
-        return dates 
-
-
-    # Uploading the files 
     @task(outlets=[RAW_DATASET])
-    def upload_raw(written_dates: list[str]):
-        """
-        Upload raw files to S3. Skipps automatically if running in local 
-        """
-        # Toggle 
-        if os.getenv("STORAGE_MODE", "local") == "local":
-            print("STORAGE_MODE is 'local'. Skipping AWS S3 upload.")
-            return []
-            
-        # Placeholder for future AWS s3
-        print(f"STORAGE_MODE is 's3'. Uploading {len(written_dates)} files to AWS bucket...")
-        return written_dates
+    def extract_transactions() -> list[str]:
+        """Run the scraper and publish the partition dates it wrote."""
+        written_paths = FakeStoreTransactionScraper().extract_transactions()
+        dates = sorted(path.stem.split("_")[-1] for path in written_paths)
 
-    # Wire up the execution (Chain the tasks)
-    dates = extract_transactions()
-    upload_raw(dates)
+        # Hand-off to the downstream (dataset-triggered) DAGs.
+        # max_active_runs=1 on every DAG keeps this single slot from being overwritten mid-run.
+        Variable.set("LAST_EXTRACT_DATES", json.dumps(dates))
+        logger.info("Extracted %d partitions: %s", len(dates), dates)
+        return dates
+
+    extract_transactions()
+
 
 extract_dag()
