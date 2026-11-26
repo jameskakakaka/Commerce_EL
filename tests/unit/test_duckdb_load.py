@@ -44,8 +44,11 @@ def test_load_creates_table_with_contract_schema(workspace):
     result = load_processed_data(DATE_STR)
 
     assert result == {"date": DATE_STR, "status": "loaded", "rows": 2}
-    cols = _query(workspace["db"], "SELECT column_name, data_type FROM information_schema.columns "
-                                   "WHERE table_name = 'transactions' ORDER BY ordinal_position")
+    cols = _query(
+        workspace["db"],
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_name = 'transactions' ORDER BY ordinal_position",
+    )
     assert cols == [(n, t) for n, t in SCHEMA]
     assert _query(workspace["db"], "SELECT DISTINCT product_title FROM transactions") == [
         ('Backpack, "15 inch"',)

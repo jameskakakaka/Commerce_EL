@@ -66,6 +66,4 @@ with chart_col2:
 
 st.subheader("Daily Revenue")
 daily = sales_df.groupby("transaction_date", as_index=False)["daily_revenue"].sum()
-st.plotly_chart(
-    px.bar(daily, x="transaction_date", y="daily_revenue"), use_container_width=True
-)
+st.plotly_chart(px.bar(daily, x="transaction_date", y="daily_revenue"), use_container_width=True)

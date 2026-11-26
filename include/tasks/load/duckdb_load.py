@@ -76,8 +76,8 @@ def load_processed_data(date_str: str, db_path: Path | None = None) -> dict:
             # Every row in the file must belong to the partition being loaded,
             # otherwise the next re-run of a *different* date would not clean it up.
             foreign = conn.execute(
-                f"SELECT COUNT(*) FROM read_csv(?, header = true, all_varchar = true) "
-                f"WHERE CAST(LEFT(transaction_date, 10) AS DATE) <> ?",
+                "SELECT COUNT(*) FROM read_csv(?, header = true, all_varchar = true) "
+                "WHERE CAST(LEFT(transaction_date, 10) AS DATE) <> ?",
                 [str(csv_path), run_date],
             ).fetchone()[0]
             if foreign:

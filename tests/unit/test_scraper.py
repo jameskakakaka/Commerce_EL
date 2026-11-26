@@ -37,8 +37,14 @@ def test_flatten_carts_one_row_per_line_item(api_data):
 def test_flatten_carts_joins_names_and_products():
     users = [{"id": 7, "name": {"firstname": "ada", "lastname": "lovelace"}}]
     products = [{"id": 3, "title": "Widget", "price": 2.5, "category": "tools"}]
-    carts = [{"id": 1, "userId": 7, "date": "2020-01-01T00:00:00.000Z",
-              "products": [{"productId": 3, "quantity": 4}]}]
+    carts = [
+        {
+            "id": 1,
+            "userId": 7,
+            "date": "2020-01-01T00:00:00.000Z",
+            "products": [{"productId": 3, "quantity": 4}],
+        }
+    ]
 
     row = flatten_carts(users, products, carts).iloc[0]
 
@@ -48,8 +54,14 @@ def test_flatten_carts_joins_names_and_products():
 
 
 def test_unknown_product_is_kept_with_zero_price_and_logged(caplog):
-    carts = [{"id": 1, "userId": 1, "date": "2020-01-01T00:00:00.000Z",
-              "products": [{"productId": 999, "quantity": 1}]}]
+    carts = [
+        {
+            "id": 1,
+            "userId": 1,
+            "date": "2020-01-01T00:00:00.000Z",
+            "products": [{"productId": 999, "quantity": 1}],
+        }
+    ]
     with caplog.at_level(logging.WARNING):
         df = flatten_carts([], [], carts)
 

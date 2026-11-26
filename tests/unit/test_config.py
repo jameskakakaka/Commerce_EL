@@ -12,7 +12,12 @@ def test_paths_follow_env_overrides(workspace):
         config.processed_path(d)
         == workspace["landing"] / "processed/2020/03/clean_data_20200302.csv"
     )
-    assert config.quarantine_path(d).parts[-4:] == ("quarantine", "2020", "03", "clean_data_20200302.csv")
+    assert config.quarantine_path(d).parts[-4:] == (
+        "quarantine",
+        "2020",
+        "03",
+        "clean_data_20200302.csv",
+    )
 
 
 def test_defaults_live_inside_project(monkeypatch):
