@@ -15,12 +15,7 @@ from pathlib import Path
 # Setting up the log
 logger = logging.getLogger(__name__)
 
-# Setting up the project root for duckDB 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-LANDING_DIR = Path(os.getenv("LANDING_DIR", _PROJECT_ROOT / "landing"))
-
-# Setting up the new Datawarehouse
-DB_PATH = _PROJECT_ROOT / "fakeshop_warehouse.db"
+from include.config import duckdb_path, processed_path
 
 # Setting up the loading data method 
 def load_processed_data(date_str:str) -> str:
@@ -29,20 +24,16 @@ def load_processed_data(date_str:str) -> str:
     """
     #Setting up the date of run format and the path to load CSV
     run_date = datetime.strptime(date_str, "%Y%m%d").date()
-    csv_path = (
-        LANDING_DIR
-        / "processed"
-        / run_date.strftime("%Y")
-        / run_date.strftime("%m")
-        / f"clean_data_{run_date.strftime('%Y%m%d')}.csv"
-    )
+    csv_path = processed_path(run_date)
 
     if not csv_path.exists():
         logger.warning(f"No processed file found for {date_str} at {csv_path}")
         return "Skipped - No File"
 
     # Connecting to the duckDB
-    conn = duckdb.connect(str(DB_PATH))
+    db_path = duckdb_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = duckdb.connect(str(db_path))
 
     # Ensuring the table exists
     try: 

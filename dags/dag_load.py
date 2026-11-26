@@ -2,10 +2,8 @@
 DAG 3: Load Pipeline (DuckDB + Data Gating)
 """
 import json
-import os
 import pandas as pd
 from datetime import datetime
-from pathlib import Path
 
 from airflow.decorators import dag, task
 from airflow.models import Variable
@@ -13,12 +11,10 @@ from airflow.datasets import Dataset
 from airflow.exceptions import AirflowSkipException
 
 # Import our modular load function
+from include.config import DEFAULT_ARGS, parse_date_str, processed_path
 from include.tasks.load.duckdb_load import load_processed_data
 
-PROCESSED_DATASET = Dataset("file://landing/processed_data")
-Dataset("file://landing/processed_data")
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-LANDING_DIR = Path(os.getenv("LANDING_DIR", _PROJECT_ROOT / "landing"))
+PROCESSED_DATASET = Dataset("file:///landing/processed")
 
 
 # Setting up the DAG for Airflow
@@ -27,6 +23,8 @@ LANDING_DIR = Path(os.getenv("LANDING_DIR", _PROJECT_ROOT / "landing"))
     start_date = datetime(2024, 1, 1),
     schedule = [PROCESSED_DATASET],
     catchup = False,
+    max_active_runs = 1,
+    default_args = DEFAULT_ARGS,
     tags = ["fakeshop", "load", "dq-gating"],
 )
 
@@ -44,14 +42,7 @@ def load_dag():
         Reads the CSV and checks for critical data errors.
         This runs dynamically in parallel!
         """
-        run_date = datetime.strptime(date_str, "%Y%m%d").date()
-        csv_path = (
-            LANDING_DIR
-            / "processed"
-            / run_date.strftime("%Y")
-            / run_date.strftime("%m")
-            / f"clean_data_{run_date.strftime('%Y%m%d')}.csv"
-        )
+        csv_path = processed_path(parse_date_str(date_str))
 
         if not csv_path.exists():
             raise AirflowSkipException(f"Missing file for {date_str}. Skipping.")
@@ -88,3 +79,6 @@ def load_dag():
     
     # Step 2 (Reduce): Load only the survivors sequentially
     load_all_dates(validated_dates)
+
+
+load_dag()

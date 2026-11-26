@@ -20,24 +20,7 @@ from typing import Dict, List
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Find the project roots (3 levels above this file) to set the landing zone of the files 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-LANDING_DIR = Path(os.getenv("LANDING_DIR", _PROJECT_ROOT /"landing"))
-
-# Set up the return structured landing path for a given file 
-def get_output_path(run_date: date) -> Path:
-    """
-    Return the structured landing path for a given file
-    """
-    return(
-        LANDING_DIR 
-        / "raw" 
-        # Setting up the date for the output
-        / run_date.strftime("%Y")
-        / run_date.strftime("%m")
-        # CSV format raw data
-        / f"raw_data_{run_date.strftime('%Y%m%d')}.csv" 
-    )
+from include.config import raw_path as get_output_path
 
 
 # Defining a class for the transaction

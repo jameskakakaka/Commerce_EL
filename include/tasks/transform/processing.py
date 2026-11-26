@@ -20,36 +20,12 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Setting up the project roots for the processed data 
-_PROJECT_ROOT =  Path(__file__).resolve().parents[3]
-LANDING_DIR = Path(os.getenv("LANDING_DIR", _PROJECT_ROOT / "landing"))
+from include.config import landing_dir, processed_path, raw_path
 
+# Kept as aliases for the CLI below and for backwards compatibility.
+get_input_path = raw_path
+get_output_path = processed_path
 
-# Setting up path for raw data in a specific date 
-def get_input_path(run_date:date) -> Path:
-    """
-    Get the raw data file path for a specific date 
-    """
-    return(
-        LANDING_DIR
-        / "raw"
-        / run_date.strftime("%Y")
-        / run_date.strftime("%m")
-        / f"raw_data_{run_date.strftime('%Y%m%d')}.csv"
-    )
-
-# Setting up the destination path for the cleaned file in a specific date
-def get_output_path(run_date:date) -> Path:
-    """
-    Get the destination path for the cleaned file
-    """
-    return(
-        LANDING_DIR
-        / "processed"
-        / run_date.strftime("%Y")
-        / run_date.strftime("%m")
-        / f"clean_data_{run_date.strftime('%Y%m%d')}.csv"
-    )
 
 # Run the cleaning pipeline on a raw CSV and write the cleaned output
 def clean(input_path:Path, output_path:Path) -> Path:
@@ -127,7 +103,7 @@ if __name__ == "__main__":
     
     # Check if the all argument is passed, process all the files 
     if args.all:
-        raw_files = sorted((LANDING_DIR / "raw").glob("*/*/raw_data_*.csv")) # Get all the raw files under landing/raw   
+        raw_files = sorted((landing_dir() / "raw").glob("*/*/raw_data_*.csv")) # Get all the raw files under landing/raw   
         if not raw_files:
             raise FileNotFoundError("No raw data files found under landing/raw")
 
