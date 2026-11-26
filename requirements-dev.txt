@@ -1,0 +1,12 @@
+# Local development, tests and CI (the Airflow image only uses requirements.txt)
+-r requirements.txt
+
+pytest==9.2.0
+pytest-cov==7.1.0
+ruff==0.17.6
+
+# dbt + dashboard (in the Airflow image dbt lives in its own venv, see Dockerfile)
+dbt-core==1.12.7
+dbt-duckdb==1.11.1
+streamlit==1.65.0
+plotly==7.2.0
