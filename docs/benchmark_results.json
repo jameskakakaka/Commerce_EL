@@ -1,0 +1,71 @@
+{
+  "generated_at": "2026-11-26",
+  "machine": {
+    "os": "Windows 10",
+    "cpu": "Intel64 Family 6 Model 186 Stepping 3, GenuineIntel",
+    "logical_cpus": 12,
+    "python": "3.10.11",
+    "pandas": "2.2.1",
+    "duckdb": "1.5.2"
+  },
+  "note": "Synthetic data in the raw FakeStore schema; single process, local disk.",
+  "runs": [
+    {
+      "rows": 10000,
+      "partitions": 30,
+      "seconds": {
+        "write_raw": 0.135,
+        "transform": 0.886,
+        "dq_checks": 0.698,
+        "load": 5.192,
+        "reload_all_idempotent": 5.422,
+        "dbt_build": 29.883
+      },
+      "rows_per_second": {
+        "transform": 11282,
+        "dq_checks": 14335,
+        "load": 1926
+      },
+      "rows_after_reload": 10000,
+      "duplicates_after_reload": 0
+    },
+    {
+      "rows": 100000,
+      "partitions": 30,
+      "seconds": {
+        "write_raw": 0.847,
+        "transform": 2.748,
+        "dq_checks": 0.876,
+        "load": 9.963,
+        "reload_all_idempotent": 9.488,
+        "dbt_build": 18.024
+      },
+      "rows_per_second": {
+        "transform": 36386,
+        "dq_checks": 114191,
+        "load": 10037
+      },
+      "rows_after_reload": 100000,
+      "duplicates_after_reload": 0
+    },
+    {
+      "rows": 1000000,
+      "partitions": 30,
+      "seconds": {
+        "write_raw": 7.926,
+        "transform": 18.174,
+        "dq_checks": 4.859,
+        "load": 27.777,
+        "reload_all_idempotent": 25.882,
+        "dbt_build": 18.688
+      },
+      "rows_per_second": {
+        "transform": 55022,
+        "dq_checks": 205805,
+        "load": 36001
+      },
+      "rows_after_reload": 1000000,
+      "duplicates_after_reload": 0
+    }
+  ]
+}
