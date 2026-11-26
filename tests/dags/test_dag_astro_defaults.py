@@ -4,7 +4,9 @@ import os
 import logging
 from contextlib import contextmanager
 import pytest
-from airflow.models import DagBag
+
+pytest.importorskip("airflow")
+from airflow.models import DagBag  # noqa: E402
 
 
 @contextmanager
