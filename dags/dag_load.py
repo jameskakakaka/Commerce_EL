@@ -24,6 +24,7 @@ from include.config import (
     DBT_PROJECT_DIR,
     DEFAULT_ARGS,
     dbt_executable,
+    duckdb_path,
     parse_date_str,
     processed_path,
     quarantine_path,
@@ -84,6 +85,13 @@ def load_dag():
             f" --project-dir {DBT_PROJECT_DIR} --profiles-dir {DBT_PROJECT_DIR}"
             " --target-path /tmp/dbt/target --log-path /tmp/dbt/logs"
         ),
+        # BashOperator runs in a temp dir, so pass the warehouse path explicitly
+        # instead of relying on profiles.yml's relative default.
+        env={"DUCKDB_PATH": str(duckdb_path())},
+        append_env=True,
+        cwd=str(DBT_PROJECT_DIR),
+        # Failing dbt tests are deterministic; retrying only delays the alert.
+        retries=0,
     )
 
     loaded >> dbt_build
