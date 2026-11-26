@@ -7,6 +7,7 @@ Triggered by the processed dataset.
              task is marked *skipped*, so one bad day never blocks the others.
   2. Reduce: load the partitions that passed, sequentially (DuckDB allows a
              single writer process), each in its own transaction.
+  3. dbt build: rebuild the marts and run the dbt data tests.
 """
 
 import json
@@ -17,8 +18,16 @@ from airflow.datasets import Dataset
 from airflow.decorators import dag, task
 from airflow.exceptions import AirflowSkipException
 from airflow.models import Variable
+from airflow.operators.bash import BashOperator
 
-from include.config import DEFAULT_ARGS, parse_date_str, processed_path, quarantine_path
+from include.config import (
+    DBT_PROJECT_DIR,
+    DEFAULT_ARGS,
+    dbt_executable,
+    parse_date_str,
+    processed_path,
+    quarantine_path,
+)
 from include.tasks.load.duckdb_load import load_processed_data
 from include.tasks.quality.checks import quarantine, validate_file
 
@@ -66,7 +75,18 @@ def load_dag():
             raise AirflowSkipException("No partition passed the data-quality gate")
         return [load_processed_data(d) for d in dates]
 
-    load_all_dates(validate_data_quality.expand(date_str=get_dates_to_load()))
+    loaded = load_all_dates(validate_data_quality.expand(date_str=get_dates_to_load()))
+
+    dbt_build = BashOperator(
+        task_id="dbt_build",
+        bash_command=(
+            f"{dbt_executable()} build"
+            f" --project-dir {DBT_PROJECT_DIR} --profiles-dir {DBT_PROJECT_DIR}"
+            " --target-path /tmp/dbt/target --log-path /tmp/dbt/logs"
+        ),
+    )
+
+    loaded >> dbt_build
 
 
 load_dag()

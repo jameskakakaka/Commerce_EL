@@ -44,6 +44,8 @@ def test_load_dag_gates_on_data_quality(dag_bag):
     assert "validate_data_quality" in load.upstream_task_ids
     # Skipped (quarantined) partitions must not block the healthy ones.
     assert load.trigger_rule == "none_failed"
+    # Marts are rebuilt (and dbt tests run) only after the load.
+    assert dag.get_task("dbt_build").upstream_task_ids == {"load_all_dates"}
 
 
 def _trigger_uris(dag):

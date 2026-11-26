@@ -29,6 +29,14 @@ def duckdb_path() -> Path:
     return Path(os.getenv("DUCKDB_PATH", str(PROJECT_ROOT / "warehouse" / "fakeshop.duckdb")))
 
 
+DBT_PROJECT_DIR = PROJECT_ROOT / "fakeshop_dbt"
+
+
+def dbt_executable() -> str:
+    """dbt binary; in the Astro image dbt lives in its own virtualenv (see Dockerfile)."""
+    return os.getenv("DBT_EXECUTABLE", "dbt")
+
+
 def _partition(zone: str, prefix: str, run_date: date) -> Path:
     return (
         landing_dir()
